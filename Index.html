@@ -1,0 +1,1675 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>مراقبة أعمال الشركة</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: Tahoma, Arial, sans-serif;
+    background: #0f1115;
+    color: #eee;
+    margin: 0;
+    min-height: 100vh;
+  }
+  .container { max-width: 1100px; margin: 0 auto; padding: 12px; }
+  .card {
+    background: #1a1d24;
+    border-radius: 14px;
+    padding: 16px;
+    margin-bottom: 14px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+  }
+  h1 { font-size: 19px; margin: 0 0 12px; color: #ff8a3d; }
+  h2 { font-size: 16px; margin: 0 0 10px; }
+  h3 { font-size: 14px; margin: 10px 0 8px; color: #9fd3ff; }
+  input, select {
+    padding: 9px;
+    margin: 4px 0;
+    border-radius: 8px;
+    border: 1px solid #333;
+    background: #12141a;
+    color: #eee;
+    font-size: 13px;
+  }
+  input[type=email], input[type=password] { width: 100%; }
+  button {
+    background: #ff6f00;
+    color: white;
+    border: none;
+    padding: 9px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    margin: 3px;
+  }
+  button.secondary { background: #2b3140; }
+  button.active-shift { background: #3ecf6b; color: #06210f; }
+  button:hover { opacity: 0.9; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { padding: 6px 4px; text-align: center; border-bottom: 1px solid #2a2e37; white-space: nowrap; }
+  th { color: #9fd3ff; font-size: 11px; position: sticky; top: 0; background: #1a1d24; }
+  td.code-cell { font-weight: bold; color: #ff8a3d; text-align: right; }
+  .table-wrap { overflow-x: auto; }
+  .check {
+    width: 22px; height: 22px;
+    border-radius: 5px;
+    border: 2px solid #666;
+    display: inline-flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .check.on { background: #3ecf6b; border-color: #3ecf6b; color: #06210f; }
+  .notes-input { width: 110px; font-size: 11px; padding: 5px; }
+  .badge {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 20px;
+    font-size: 11px;
+  }
+  .badge.good { background: #17402a; color: #3ecf6b; }
+  .badge.mid { background: #4a3a10; color: #ffcf5c; }
+  .badge.bad { background: #4a2020; color: #ff7b7b; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+  .tab { padding: 7px 12px; background: #1a1d24; border-radius: 8px; cursor: pointer; font-size: 12px; }
+  .tab.active { background: #ff6f00; }
+  .status { text-align: center; padding: 30px 0; color: #999; }
+  .dept-card { cursor: pointer; }
+  .dept-card:hover { background: #22262f; }
+  #errorBox { color: #ff7b7b; font-size: 13px; margin-top: 6px; }
+  .hidden { display: none !important; }
+  .insight { background: #241c0f; border-right: 4px solid #ffb84d; padding: 10px 12px; border-radius: 8px; margin-bottom: 8px; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<div class="container">
+
+  <div id="loginScreen" class="card">
+    <h1>📊 مراقبة أعمال الشركة</h1>
+    <input type="email" id="loginEmail" placeholder="الإيميل">
+    <input type="password" id="loginPassword" placeholder="كلمة السر">
+    <button onclick="doLogin()">دخول</button>
+    <div id="errorBox"></div>
+  </div>
+
+  <div id="loadingScreen" class="status hidden">جاري التحميل...</div>
+
+  <div id="appScreen" class="hidden">
+    <div class="card" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap;">
+      <div>
+        <div id="userNameLabel" style="font-weight:bold;"></div>
+        <div id="userRoleLabel" style="font-size:12px; color:#999;"></div>
+      </div>
+      <button class="secondary" onclick="doLogout()">تسجيل خروج</button>
+    </div>
+
+    <div id="shiftView" class="hidden"></div>
+    <div id="hallView" class="hidden"></div>
+    <div id="salesView" class="hidden"></div>
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+const SUPABASE_URL = "https://vedmymtutjqjtkyejdpk.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_Jy_Q0rlVHKsFQ0LAadPtsg_Hlg4CFTd";
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+const FIELD_DEFS = [
+  { key: 'inventory', label: 'جرد' },
+  { key: 'display', label: 'عرض' },
+  { key: 'cleaning', label: 'تنظيف' },
+  { key: 'shipping', label: 'شحن' },
+  { key: 'format', label: 'فورمات' },
+  { key: 'alarm', label: 'إنذار' }
+];
+
+const STAFF_FIELD_DEFS = [
+  { key: 'general_cleanliness', label: 'نظافة عامة' },
+  { key: 'hair_beard', label: 'شعر/لحية' },
+  { key: 'nails', label: 'أظافر' },
+  { key: 'uniform_cleanliness', label: 'نظافة الزي' },
+  { key: 'uniform_ironing', label: 'كوي الزي' },
+  { key: 'non_flashy_colors', label: 'ألوان هادئة' }
+];
+
+const IPAD_FIELD_DEFS = [
+  { key: 'inventory', label: 'جرد' },
+  { key: 'has_case', label: 'حافظة' },
+  { key: 'has_screen_protector', label: 'لاصق شاشة' }
+];
+
+const READER_FIELD_DEFS = [
+  { key: 'inventory', label: 'جرد' },
+  { key: 'cleanliness', label: 'نظافة' }
+];
+
+const CLEAN_FIELD_DEFS = [
+  { key: 'floor_clean', label: 'نظافة الأرضية' },
+  { key: 'device_bars_clean', label: 'عوارض الأجهزة' },
+  { key: 'user_bars_clean', label: 'عوارض المستخدم' },
+  { key: 'tablet_bars_clean', label: 'عوارض التابات' }
+];
+
+let currentShiftChoice = null; // للحساب اللي دوامه 'both'
+let currentDate = null; // التاريخ المعروض حالياً بواجهة مسؤول الشفت
+let currentManageMode = false; // هل مسموح بالإضافة/الحذف (مدير المبيعات بس)
+let salesSelectedDate = null; // التاريخ المرجعي بواجهة مسؤول المبيعات
+let currentSalesRange = 'day';
+let currentStaffRange = 'day';
+let currentTaskRange = 'day';
+
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+function daysAgoStr(n){ const d=new Date(); d.setDate(d.getDate()-n); return d.toISOString().slice(0,10); }
+function addDaysStr(dateStr, n){ const d=new Date(dateStr); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); }
+
+async function doLogin(){
+  const email = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  const errorBox = document.getElementById('errorBox');
+  errorBox.textContent = "";
+  const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+  if (error){
+    errorBox.textContent = "❌ خطأ: تأكد من الإيميل وكلمة السر";
+  } else {
+    await handleLoggedIn();
+  }
+}
+
+async function doLogout(){
+  await supabaseClient.auth.signOut();
+  document.getElementById('loginScreen').classList.remove('hidden');
+  document.getElementById('appScreen').classList.add('hidden');
+}
+
+window.addEventListener('DOMContentLoaded', async () => {
+  const { data } = await supabaseClient.auth.getSession();
+  if (data.session){ await handleLoggedIn(); }
+});
+
+async function getMyProfile(){
+  const { data: { user } } = await supabaseClient.auth.getUser();
+  const { data: profile } = await supabaseClient.from('profiles').select('*').eq('id', user.id).single();
+  return profile;
+}
+
+async function handleLoggedIn(){
+  const loginScreen = document.getElementById('loginScreen');
+  const loadingScreen = document.getElementById('loadingScreen');
+  const appScreen = document.getElementById('appScreen');
+
+  loginScreen.classList.add('hidden');
+  loadingScreen.classList.remove('hidden');
+
+  const profile = await getMyProfile();
+  if (!profile){
+    const { data: { user } } = await supabaseClient.auth.getUser();
+    loadingScreen.innerHTML = `⚠️ هذا الحساب ما له دور محدد بعد.<br>UID: <code style="color:#ff8a3d">${user.id}</code>`;
+    return;
+  }
+
+  loadingScreen.classList.add('hidden');
+  appScreen.classList.remove('hidden');
+
+  document.getElementById('userNameLabel').textContent = profile.name || '';
+  const roleLabels = { shift: "مسؤول شفت", hall: "مسؤول صالة", sales: "مسؤول مبيعات" };
+  const shiftLabels = { morning: "صباحي", evening: "مسائي", both: "صباحي ومسائي" };
+  document.getElementById('userRoleLabel').textContent = roleLabels[profile.role] || profile.role;
+
+  document.getElementById('shiftView').classList.add('hidden');
+  document.getElementById('hallView').classList.add('hidden');
+  document.getElementById('salesView').classList.add('hidden');
+
+  if (profile.role === 'shift'){
+    document.getElementById('shiftView').classList.remove('hidden');
+    currentShiftChoice = 'morning';
+    currentDate = todayStr();
+    currentManageMode = false;
+    await renderShiftView(profile);
+  } else if (profile.role === 'hall'){
+    document.getElementById('hallView').classList.remove('hidden');
+    currentManageMode = false;
+    await renderHallView(profile);
+  } else if (profile.role === 'sales'){
+    document.getElementById('salesView').classList.remove('hidden');
+    await renderSalesView();
+  }
+}
+
+async function getLocations(deptId){
+  const { data } = await supabaseClient.from('locations').select('*').eq('department_id', deptId).order('code');
+  return data || [];
+}
+
+async function getDailyLog(locationId, date, shift){
+  const { data } = await supabaseClient.from('daily_logs').select('*')
+    .eq('location_id', locationId).eq('log_date', date).eq('shift', shift).maybeSingle();
+  return data;
+}
+
+async function getDailyLogsMap(locationIds, date, shift){
+  if (!locationIds.length) return {};
+  const { data } = await supabaseClient.from('daily_logs').select('*')
+    .in('location_id', locationIds).eq('log_date', date).eq('shift', shift);
+  const map = {};
+  (data || []).forEach(l => { map[l.location_id] = l; });
+  return map;
+}
+
+async function getCustomFields(deptId){
+  const { data } = await supabaseClient.from('custom_fields').select('*').eq('department_id', deptId).order('created_at');
+  return data || [];
+}
+
+async function addCustomField(deptId){
+  const input = document.getElementById('newFieldInput');
+  const name = input ? input.value.trim() : '';
+  if (!name) return;
+  await supabaseClient.from('custom_fields').insert({ department_id: deptId, name });
+  if (input) input.value = '';
+  await renderCustomFieldsSection(deptId);
+}
+
+async function deleteCustomField(fieldId, deptId){
+  const { error } = await supabaseClient.from('custom_fields').delete().eq('id', fieldId);
+  if (error){ alert('خطأ بالحذف: ' + error.message); return; }
+  await renderCustomFieldsSection(deptId);
+}
+
+async function renderCustomFieldsSection(deptId){
+  const el = document.getElementById('customFieldsSection');
+  if (!el) return;
+  const fields = await getCustomFields(deptId);
+  let rowsHtml = "";
+  for (const f of fields){
+    rowsHtml += `
+      <div class="item-row">
+        <div class="item-name">${f.name}</div>
+        <span style="cursor:pointer;color:#ff7b7b;font-size:13px;" onclick="deleteCustomField('${f.id}','${deptId}')">✕ حذف</span>
+      </div>`;
+  }
+  el.innerHTML = `
+    <h3>➕ خانات عمل إضافية (تظهر بجدول المواقع)</h3>
+    ${rowsHtml || '<div style="color:#999;">لا توجد خانات إضافية</div>'}
+    <div style="margin-top:10px;">
+      <input type="text" id="newFieldInput" placeholder="اسم خانة عمل جديدة">
+      <button onclick="addCustomField('${deptId}')">➕ إضافة خانة</button>
+    </div>`;
+}
+
+// ---------- إدارة أجهزة الآيباد ----------
+async function getIpads(deptId){
+  const { data } = await supabaseClient.from('ipads').select('*').eq('department_id', deptId).order('created_at');
+  return data || [];
+}
+
+async function addIpad(deptId){
+  const input = document.getElementById('newIpadInput');
+  const code = input ? input.value.trim() : '';
+  if (!code) return;
+  await supabaseClient.from('ipads').insert({ department_id: deptId, code });
+  if (input) input.value = '';
+  await renderIpadSection(deptId);
+}
+
+async function deleteIpad(ipadId, deptId){
+  const { error } = await supabaseClient.from('ipads').delete().eq('id', ipadId);
+  if (error){ alert('خطأ بالحذف: ' + error.message); return; }
+  await renderIpadSection(deptId);
+}
+
+async function getIpadLogsMap(ipadIds, date, shift){
+  if (!ipadIds.length) return {};
+  const { data } = await supabaseClient.from('ipad_logs').select('*')
+    .in('ipad_id', ipadIds).eq('log_date', date).eq('shift', shift);
+  const map = {};
+  (data || []).forEach(l => { map[l.ipad_id] = l; });
+  return map;
+}
+
+async function getIpadLog(ipadId, date, shift){
+  const { data } = await supabaseClient.from('ipad_logs').select('*')
+    .eq('ipad_id', ipadId).eq('log_date', date).eq('shift', shift).maybeSingle();
+  return data;
+}
+
+async function toggleIpadField(ipadId, fieldKey, date, shift){
+  const box = document.getElementById(`ipadchk_${ipadId}_${fieldKey}`);
+  const willBeOn = box && !box.classList.contains('on');
+  if (box){ box.classList.toggle('on'); box.textContent = willBeOn ? '✓' : ''; }
+  const { data: { user } } = await supabaseClient.auth.getUser();
+  const existing = await getIpadLog(ipadId, date, shift);
+  const payload = {
+    ipad_id: ipadId, log_date: date, shift: shift,
+    inventory: existing?.inventory || false,
+    has_case: existing?.has_case || false,
+    has_screen_protector: existing?.has_screen_protector || false,
+    updated_by: user.id, updated_at: new Date().toISOString()
+  };
+  payload[fieldKey] = !payload[fieldKey];
+  const { error } = await supabaseClient.from('ipad_logs').upsert(payload, { onConflict: 'ipad_id,log_date,shift' });
+  if (error){ alert('خطأ بالحفظ: ' + error.message); }
+}
+
+async function renderIpadSection(deptId){
+  const canManage = currentManageMode;
+  const el = document.getElementById('ipadSection');
+  if (!el) return;
+  const date = currentDate || todayStr();
+  const shift = currentShiftChoice;
+  const ipads = await getIpads(deptId);
+  const ipadIds = ipads.map(i => i.id);
+  const logsMap = await getIpadLogsMap(ipadIds, date, shift);
+
+  let rowsHtml = "";
+  for (const ip of ipads){
+    const log = logsMap[ip.id];
+    let cells = "";
+    for (const f of IPAD_FIELD_DEFS){
+      const checked = log ? log[f.key] : false;
+      cells += `<td><div class="check ${checked?'on':''}" id="ipadchk_${ip.id}_${f.key}" onclick="toggleIpadField('${ip.id}','${f.key}','${date}','${shift}')">${checked?'✓':''}</div></td>`;
+    }
+    const delBtn = canManage ? ` <span style="cursor:pointer;color:#ff7b7b;font-size:11px;" onclick="deleteIpad('${ip.id}','${deptId}')">✕</span>` : '';
+    rowsHtml += `<tr><td class="code-cell">${ip.code}${delBtn}</td>${cells}</tr>`;
+  }
+
+  const manageHtml = canManage ? `
+    <div style="margin-top:10px;">
+      <input type="text" id="newIpadInput" placeholder="كود الآيباد الجديد">
+      <button onclick="addIpad('${deptId}')">➕ إضافة آيباد</button>
+    </div>` : '';
+
+  el.innerHTML = `
+    <h3>📱 جرد الآيباد — ${date}</h3>
+    <div class="table-wrap">
+      <table>
+        <tr><th>الجهاز</th>${IPAD_FIELD_DEFS.map(f=>`<th>${f.label}</th>`).join('')}</tr>
+        ${rowsHtml || '<tr><td colspan="4">لا توجد أجهزة مسجلة بعد</td></tr>'}
+      </table>
+    </div>
+    ${manageHtml}`;
+}
+
+// ---------- إدارة أجهزة قارئ السيريال ----------
+async function getReaders(deptId){
+  const { data } = await supabaseClient.from('serial_readers').select('*').eq('department_id', deptId).order('created_at');
+  return data || [];
+}
+
+async function addReader(deptId){
+  const input = document.getElementById('newReaderInput');
+  const code = input ? input.value.trim() : '';
+  if (!code) return;
+  await supabaseClient.from('serial_readers').insert({ department_id: deptId, code });
+  if (input) input.value = '';
+  await renderReaderSection(deptId);
+}
+
+async function deleteReader(readerId, deptId){
+  const { error } = await supabaseClient.from('serial_readers').delete().eq('id', readerId);
+  if (error){ alert('خطأ بالحذف: ' + error.message); return; }
+  await renderReaderSection(deptId);
+}
+
+async function getReaderLogsMap(readerIds, date, shift){
+  if (!readerIds.length) return {};
+  const { data } = await supabaseClient.from('serial_reader_logs').select('*')
+    .in('reader_id', readerIds).eq('log_date', date).eq('shift', shift);
+  const map = {};
+  (data || []).forEach(l => { map[l.reader_id] = l; });
+  return map;
+}
+
+async function getReaderLog(readerId, date, shift){
+  const { data } = await supabaseClient.from('serial_reader_logs').select('*')
+    .eq('reader_id', readerId).eq('log_date', date).eq('shift', shift).maybeSingle();
+  return data;
+}
+
+async function toggleReaderField(readerId, fieldKey, date, shift){
+  const box = document.getElementById(`readerchk_${readerId}_${fieldKey}`);
+  const willBeOn = box && !box.classList.contains('on');
+  if (box){ box.classList.toggle('on'); box.textContent = willBeOn ? '✓' : ''; }
+  const { data: { user } } = await supabaseClient.auth.getUser();
+  const existing = await getReaderLog(readerId, date, shift);
+  const payload = {
+    reader_id: readerId, log_date: date, shift: shift,
+    inventory: existing?.inventory || false,
+    cleanliness: existing?.cleanliness || false,
+    updated_by: user.id, updated_at: new Date().toISOString()
+  };
+  payload[fieldKey] = !payload[fieldKey];
+  const { error } = await supabaseClient.from('serial_reader_logs').upsert(payload, { onConflict: 'reader_id,log_date,shift' });
+  if (error){ alert('خطأ بالحفظ: ' + error.message); }
+}
+
+async function renderReaderSection(deptId){
+  const canManage = currentManageMode;
+  const el = document.getElementById('readerSection');
+  if (!el) return;
+  const date = currentDate || todayStr();
+  const shift = currentShiftChoice;
+  const readers = await getReaders(deptId);
+  const readerIds = readers.map(r => r.id);
+  const logsMap = await getReaderLogsMap(readerIds, date, shift);
+
+  let rowsHtml = "";
+  for (const r of readers){
+    const log = logsMap[r.id];
+    let cells = "";
+    for (const f of READER_FIELD_DEFS){
+      const checked = log ? log[f.key] : false;
+      cells += `<td><div class="check ${checked?'on':''}" id="readerchk_${r.id}_${f.key}" onclick="toggleReaderField('${r.id}','${f.key}','${date}','${shift}')">${checked?'✓':''}</div></td>`;
+    }
+    const delBtn = canManage ? ` <span style="cursor:pointer;color:#ff7b7b;font-size:11px;" onclick="deleteReader('${r.id}','${deptId}')">✕</span>` : '';
+    rowsHtml += `<tr><td class="code-cell">${r.code}${delBtn}</td>${cells}</tr>`;
+  }
+
+  const manageHtml = canManage ? `
+    <div style="margin-top:10px;">
+      <input type="text" id="newReaderInput" placeholder="كود الجهاز الجديد">
+      <button onclick="addReader('${deptId}')">➕ إضافة جهاز</button>
+    </div>` : '';
+
+  el.innerHTML = `
+    <h3>🔍 جرد قارئ السيريال — ${date}</h3>
+    <div class="table-wrap">
+      <table>
+        <tr><th>الجهاز</th>${READER_FIELD_DEFS.map(f=>`<th>${f.label}</th>`).join('')}</tr>
+        ${rowsHtml || '<tr><td colspan="3">لا توجد أجهزة مسجلة بعد</td></tr>'}
+      </table>
+    </div>
+    ${manageHtml}`;
+}
+
+// ---------- نظافة القسم العامة ----------
+async function getCleanlinessLog(deptId, date, shift){
+  const { data } = await supabaseClient.from('department_cleanliness_logs').select('*')
+    .eq('department_id', deptId).eq('log_date', date).eq('shift', shift).maybeSingle();
+  return data;
+}
+
+async function toggleCleanField(deptId, fieldKey, date, shift){
+  const box = document.getElementById(`cleanchk_${fieldKey}`);
+  const willBeOn = box && !box.classList.contains('on');
+  if (box){ box.classList.toggle('on'); box.textContent = willBeOn ? '✓' : ''; }
+  const { data: { user } } = await supabaseClient.auth.getUser();
+  const existing = await getCleanlinessLog(deptId, date, shift);
+  const payload = {
+    department_id: deptId, log_date: date, shift: shift,
+    floor_clean: existing?.floor_clean || false,
+    device_bars_clean: existing?.device_bars_clean || false,
+    user_bars_clean: existing?.user_bars_clean || false,
+    tablet_bars_clean: existing?.tablet_bars_clean || false,
+    updated_by: user.id, updated_at: new Date().toISOString()
+  };
+  payload[fieldKey] = !payload[fieldKey];
+  const { error } = await supabaseClient.from('department_cleanliness_logs').upsert(payload, { onConflict: 'department_id,log_date,shift' });
+  if (error){ alert('خطأ بالحفظ: ' + error.message); }
+}
+
+async function renderCleanlinessSection(deptId){
+  const el = document.getElementById('cleanSection');
+  if (!el) return;
+  const date = currentDate || todayStr();
+  const shift = currentShiftChoice;
+  const log = await getCleanlinessLog(deptId, date, shift);
+
+  let rowsHtml = "";
+  for (const f of CLEAN_FIELD_DEFS){
+    const checked = log ? log[f.key] : false;
+    rowsHtml += `
+      <div class="item-row ${checked?'checked':'unchecked'}">
+        <div class="item-name">${f.label}</div>
+        <div class="check ${checked?'on':''}" id="cleanchk_${f.key}" onclick="toggleCleanField('${deptId}','${f.key}','${date}','${shift}')">${checked?'✓':''}</div>
+      </div>`;
+  }
+
+  el.innerHTML = `
+    <h3>🧹 نظافة القسم — ${date} (${shift==='morning'?'صباحي':'مسائي'})</h3>
+    ${rowsHtml}`;
+}
+
+// ---------- إدارة المهام اليومية العامة ----------
+async function getDailyTasks(deptId){
+  const { data } = await supabaseClient.from('daily_tasks').select('*').eq('department_id', deptId).order('created_at');
+  return data || [];
+}
+
+async function addDailyTask(deptId){
+  const input = document.getElementById('newTaskInput');
+  const name = input ? input.value.trim() : '';
+  if (!name) return;
+  await supabaseClient.from('daily_tasks').insert({ department_id: deptId, name });
+  if (input) input.value = '';
+  await renderTasksSection(deptId);
+}
+
+async function deleteDailyTask(taskId, deptId){
+  const { error } = await supabaseClient.from('daily_tasks').delete().eq('id', taskId);
+  if (error){ alert('خطأ بالحذف: ' + error.message); return; }
+  await renderTasksSection(deptId);
+}
+
+async function getTaskLogsMap(taskIds, date, shift){
+  if (!taskIds.length) return {};
+  const { data } = await supabaseClient.from('daily_task_logs').select('*')
+    .in('task_id', taskIds).eq('log_date', date).eq('shift', shift);
+  const map = {};
+  (data || []).forEach(l => { map[l.task_id] = l; });
+  return map;
+}
+
+async function toggleTaskLog(taskId, date, shift){
+  const box = document.getElementById(`taskchk_${taskId}`);
+  const willBeOn = box && !box.classList.contains('on');
+  if (box){
+    box.classList.toggle('on');
+    box.textContent = willBeOn ? '✓' : '';
+  }
+  const { data: { user } } = await supabaseClient.auth.getUser();
+  const { error } = await supabaseClient.from('daily_task_logs').upsert({
+    task_id: taskId,
+    log_date: date,
+    shift: shift,
+    checked: willBeOn,
+    updated_by: user.id,
+    updated_at: new Date().toISOString()
+  }, { onConflict: 'task_id,log_date,shift' });
+  if (error){ alert('خطأ بالحفظ: ' + error.message); }
+}
+
+async function renderTasksSection(deptId){
+  const canManage = currentManageMode;
+  const el = document.getElementById('tasksSection');
+  if (!el) return;
+  const date = currentDate || todayStr();
+  const shift = currentShiftChoice;
+  const tasks = await getDailyTasks(deptId);
+  const taskIds = tasks.map(t => t.id);
+  const logsMap = await getTaskLogsMap(taskIds, date, shift);
+
+  let rowsHtml = "";
+  for (const t of tasks){
+    const log = logsMap[t.id];
+    const checked = log?.checked;
+    const delBtn = canManage ? ` <span style="cursor:pointer;color:#ff7b7b;font-size:11px;" onclick="deleteDailyTask('${t.id}','${deptId}')">✕</span>` : '';
+    rowsHtml += `
+      <div class="item-row ${checked?'checked':'unchecked'}">
+        <div class="item-name">${t.name}${delBtn}</div>
+        <div class="check ${checked?'on':''}" id="taskchk_${t.id}" onclick="toggleTaskLog('${t.id}','${date}','${shift}')">${checked?'✓':''}</div>
+      </div>`;
+  }
+
+  const manageHtml = canManage ? `
+    <div style="margin-top:10px;">
+      <input type="text" id="newTaskInput" placeholder="اسم مهمة جديدة">
+      <button onclick="addDailyTask('${deptId}')">➕ إضافة مهمة</button>
+    </div>` : '';
+
+  el.innerHTML = `
+    <h3>📝 المهام اليومية — ${date}</h3>
+    ${rowsHtml || '<div style="color:#999;">لا توجد مهام مسجلة بعد</div>'}
+    ${manageHtml}`;
+}
+
+async function getStaffList(deptId){
+  const { data } = await supabaseClient.from('staff').select('*').eq('department_id', deptId).order('created_at');
+  return data || [];
+}
+
+async function addStaffMember(deptId){
+  const input = document.getElementById('newStaffInput');
+  const name = input ? input.value.trim() : '';
+  if (!name) return;
+  await supabaseClient.from('staff').insert({ department_id: deptId, name });
+  if (input) input.value = '';
+  await renderStaffSection(deptId);
+}
+
+async function deleteStaffMember(staffId, deptId){
+  const { error } = await supabaseClient.from('staff').delete().eq('id', staffId);
+  if (error){ alert('خطأ بالحذف: ' + error.message); return; }
+  await renderStaffSection(deptId);
+}
+
+async function getStaffEvaluationsMap(staffIds, date, shift){
+  if (!staffIds.length) return {};
+  const { data } = await supabaseClient.from('staff_evaluations').select('*')
+    .in('staff_id', staffIds).eq('log_date', date).eq('shift', shift);
+  const map = {};
+  (data || []).forEach(e => { map[e.staff_id] = e; });
+  return map;
+}
+
+async function getStaffEvaluation(staffId, date, shift){
+  const { data } = await supabaseClient.from('staff_evaluations').select('*')
+    .eq('staff_id', staffId).eq('log_date', date).eq('shift', shift).maybeSingle();
+  return data;
+}
+
+function buildEmptyEvalPayload(existing, date, shift){
+  const p = { log_date: date, shift: shift, notes: existing?.notes || '' };
+  STAFF_FIELD_DEFS.forEach(f => { p[f.key] = existing?.[f.key] || false; });
+  return p;
+}
+
+async function toggleStaffField(staffId, fieldKey, date, shift){
+  const box = document.getElementById(`staffchk_${staffId}_${fieldKey}`);
+  const willBeOn = box && !box.classList.contains('on');
+  if (box){
+    box.classList.toggle('on');
+    box.textContent = willBeOn ? '✓' : '';
+  }
+  const { data: { user } } = await supabaseClient.auth.getUser();
+  const existing = await getStaffEvaluation(staffId, date, shift);
+  const payload = buildEmptyEvalPayload(existing, date, shift);
+  payload.staff_id = staffId;
+  payload[fieldKey] = !payload[fieldKey];
+  payload.updated_by = user.id;
+  payload.updated_at = new Date().toISOString();
+  const { error } = await supabaseClient.from('staff_evaluations').upsert(payload, { onConflict: 'staff_id,log_date,shift' });
+  if (error){ alert('خطأ بالحفظ: ' + error.message); }
+}
+
+async function updateStaffNotes(staffId, date, shift, value){
+  const { data: { user } } = await supabaseClient.auth.getUser();
+  const existing = await getStaffEvaluation(staffId, date, shift);
+  const payload = buildEmptyEvalPayload(existing, date, shift);
+  payload.staff_id = staffId;
+  payload.notes = value;
+  payload.updated_by = user.id;
+  payload.updated_at = new Date().toISOString();
+  await supabaseClient.from('staff_evaluations').upsert(payload, { onConflict: 'staff_id,log_date,shift' });
+}
+
+async function renderStaffSection(deptId){
+  const canManage = currentManageMode;
+  const el = document.getElementById('staffSection');
+  if (!el) return;
+  const date = currentDate || todayStr();
+  const shift = currentShiftChoice;
+  const staffList = await getStaffList(deptId);
+  const staffIds = staffList.map(s => s.id);
+  const evalMap = await getStaffEvaluationsMap(staffIds, date, shift);
+
+  let rowsHtml = "";
+  for (const s of staffList){
+    const ev = evalMap[s.id];
+    let cells = "";
+    for (const f of STAFF_FIELD_DEFS){
+      const checked = ev ? ev[f.key] : false;
+      cells += `<td><div class="check ${checked?'on':''}" id="staffchk_${s.id}_${f.key}" onclick="toggleStaffField('${s.id}','${f.key}','${date}','${shift}')">${checked?'✓':''}</div></td>`;
+    }
+    const notes = ev?.notes || '';
+    cells += `<td><input class="notes-input" value="${notes.replace(/"/g,'&quot;')}" onchange="updateStaffNotes('${s.id}','${date}','${shift}', this.value)"></td>`;
+    const delBtn = canManage ? ` <span style="cursor:pointer;color:#ff7b7b;font-size:11px;" onclick="deleteStaffMember('${s.id}','${deptId}')">✕</span>` : '';
+    rowsHtml += `<tr><td class="code-cell">${s.name}${delBtn}</td>${cells}</tr>`;
+  }
+
+  const manageHtml = canManage ? `
+    <div style="margin-top:10px;">
+      <input type="text" id="newStaffInput" placeholder="اسم موظف جديد">
+      <button onclick="addStaffMember('${deptId}')">➕ إضافة موظف</button>
+    </div>` : '';
+
+  el.innerHTML = `
+    <h3>👤 تقييم الموظفين — ${date}</h3>
+    <div class="table-wrap">
+      <table>
+        <tr>
+          <th>الموظف</th>
+          ${STAFF_FIELD_DEFS.map(f=>`<th>${f.label}</th>`).join('')}
+          <th>ملاحظات</th>
+        </tr>
+        ${rowsHtml || '<tr><td colspan="8">لا يوجد موظفون مسجلون بعد</td></tr>'}
+      </table>
+    </div>
+    ${manageHtml}`;
+}
+
+// ---------- واجهة مسؤول الشفت ----------
+async function renderShiftView(profile){
+  const el = document.getElementById('shiftView');
+  const deptId = (profile.department_ids && profile.department_ids[0]) || null;
+  if (!deptId){
+    el.innerHTML = `<div class="card">⚠️ ما عندك قسم محدد بحسابك.</div>`;
+    return;
+  }
+  const { data: dept } = await supabaseClient.from('departments').select('*').eq('id', deptId).single();
+  const deptName = dept?.name || deptId;
+  const date = todayStr();
+  const locations = await getLocations(deptId);
+  const customFields = await getCustomFields(deptId);
+
+  let rowsHtml = "";
+  const locationIds = locations.map(l => l.id);
+  const logsMap = await getDailyLogsMap(locationIds, date, currentShiftChoice);
+  for (const loc of locations){
+    const log = logsMap[loc.id];
+    let cells = "";
+    for (const f of FIELD_DEFS){
+      const checked = log ? log[f.key] : false;
+      cells += `<td><div class="check ${checked?'on':''}" id="chk_${loc.id}_${f.key}" onclick="toggleField('${loc.id}','${f.key}','${date}','${currentShiftChoice}')">${checked?'✓':''}</div></td>`;
+    }
+    const extra = log?.extra_fields || {};
+    for (const cf of customFields){
+      const checked = !!extra[cf.id];
+      cells += `<td><div class="check ${checked?'on':''}" id="chk_${loc.id}_extra_${cf.id}" onclick="toggleExtraField('${loc.id}','${cf.id}','${date}','${currentShiftChoice}')">${checked?'✓':''}</div></td>`;
+    }
+    const notes = log?.notes || '';
+    cells += `<td><input class="notes-input" value="${notes.replace(/"/g,'&quot;')}" onchange="updateNotes('${loc.id}','${date}','${currentShiftChoice}', this.value)"></td>`;
+    rowsHtml += `<tr><td class="code-cell">${loc.code}</td>${cells}</tr>`;
+  }
+
+  const customHeaders = customFields.map(cf => `<th>${cf.name}</th>`).join('');
+
+  el.innerHTML = `
+    <div class="card">
+      <h2>📋 ${deptName} — ${date}</h2>
+      <div class="table-wrap">
+        <table>
+          <tr>
+            <th>الموقع</th>
+            ${FIELD_DEFS.map(f=>`<th>${f.label}</th>`).join('')}
+            ${customHeaders}
+            <th>ملاحظات</th>
+          </tr>
+          ${rowsHtml || '<tr><td colspan="8">لا توجد مواقع لهذا القسم</td></tr>'}
+        </table>
+      </div>
+    </div>
+    <div class="card" id="staffSection"></div>
+    <div class="card" id="tasksSection"></div>
+    <div class="card" id="ipadSection"></div>
+    <div class="card" id="readerSection"></div>
+    <div class="card" id="cleanSection"></div>`;
+  await renderStaffSection(deptId);
+  await renderTasksSection(deptId);
+  await renderIpadSection(deptId);
+  await renderReaderSection(deptId);
+  await renderCleanlinessSection(deptId);
+}
+
+async function switchShift(shift){
+  currentShiftChoice = shift;
+  const profile = await getMyProfile();
+  await renderShiftView(profile);
+}
+
+function changeDate(deltaDays){
+  currentDate = addDaysStr(currentDate || todayStr(), deltaDays);
+  getMyProfile().then(renderShiftView);
+}
+
+function goToDate(dateStr){
+  currentDate = dateStr;
+  getMyProfile().then(renderShiftView);
+}
+
+function goToToday(){
+  currentDate = todayStr();
+  getMyProfile().then(renderShiftView);
+}
+
+async function toggleHistoryPanel(deptId){
+  const panel = document.getElementById('historyPanel');
+  if (panel.dataset.open === '1'){
+    panel.innerHTML = '';
+    panel.dataset.open = '0';
+    return;
+  }
+  panel.innerHTML = '<div class="status">جاري تحميل السجل...</div>';
+  panel.dataset.open = '1';
+
+  const locations = await getLocations(deptId);
+  const locationIds = locations.map(l => l.id);
+  const startDate = daysAgoStr(29);
+  const endDate = todayStr();
+  const { data: logs } = await supabaseClient.from('daily_logs').select('*')
+    .in('location_id', locationIds).gte('log_date', startDate).lte('log_date', endDate);
+
+  const byDate = {};
+  (logs || []).forEach(l => {
+    if (!byDate[l.log_date]) byDate[l.log_date] = [];
+    byDate[l.log_date].push(l);
+  });
+
+  let rows = "";
+  for (let i = 0; i <= 29; i++){
+    const d = daysAgoStr(i);
+    const dayLogs = byDate[d] || [];
+    const totalPossible = locations.length * 2 * FIELD_DEFS.length; // شفتين
+    let checked = 0;
+    dayLogs.forEach(l => FIELD_DEFS.forEach(f => { if (l[f.key]) checked++; }));
+    const pct = totalPossible ? Math.round((checked/totalPossible)*100) : 0;
+    rows += `<tr style="cursor:pointer;" onclick="goToDate('${d}')"><td>${d}</td><td>${pct}%</td></tr>`;
+  }
+
+  panel.innerHTML = `
+    <div class="card" style="max-height:300px; overflow-y:auto;">
+      <h3>آخر 30 يوم (اضغط على تاريخ للانتقال له)</h3>
+      <table><tr><th>التاريخ</th><th>نسبة الإنجاز</th></tr>${rows}</table>
+    </div>`;
+}
+
+function buildEmptyLogPayload(existing, date, shift){
+  return {
+    inventory: existing?.inventory || false,
+    display: existing?.display || false,
+    cleaning: existing?.cleaning || false,
+    shipping: existing?.shipping || false,
+    format: existing?.format || false,
+    alarm: existing?.alarm || false,
+    notes: existing?.notes || '',
+    extra_fields: existing?.extra_fields || {},
+    log_date: date,
+    shift: shift
+  };
+}
+
+async function toggleField(locationId, fieldKey, date, shift){
+  // تحديث فوري بالواجهة قبل الحفظ
+  const box = document.getElementById(`chk_${locationId}_${fieldKey}`);
+  const willBeOn = box && !box.classList.contains('on');
+  if (box){
+    box.classList.toggle('on');
+    box.textContent = willBeOn ? '✓' : '';
+  }
+
+  const { data: { user } } = await supabaseClient.auth.getUser();
+  const existing = await getDailyLog(locationId, date, shift);
+  const payload = buildEmptyLogPayload(existing, date, shift);
+  payload.location_id = locationId;
+  payload[fieldKey] = !payload[fieldKey];
+  payload.updated_by = user.id;
+  payload.updated_at = new Date().toISOString();
+  await supabaseClient.from('daily_logs').upsert(payload, { onConflict: 'location_id,log_date,shift' });
+}
+
+async function toggleExtraField(locationId, fieldId, date, shift){
+  const box = document.getElementById(`chk_${locationId}_extra_${fieldId}`);
+  const willBeOn = box && !box.classList.contains('on');
+  if (box){
+    box.classList.toggle('on');
+    box.textContent = willBeOn ? '✓' : '';
+  }
+
+  const { data: { user } } = await supabaseClient.auth.getUser();
+  const existing = await getDailyLog(locationId, date, shift);
+  const payload = buildEmptyLogPayload(existing, date, shift);
+  payload.location_id = locationId;
+  payload.extra_fields = { ...(existing?.extra_fields || {}) };
+  payload.extra_fields[fieldId] = !payload.extra_fields[fieldId];
+  payload.updated_by = user.id;
+  payload.updated_at = new Date().toISOString();
+  await supabaseClient.from('daily_logs').upsert(payload, { onConflict: 'location_id,log_date,shift' });
+}
+
+async function updateNotes(locationId, date, shift, value){
+  const { data: { user } } = await supabaseClient.auth.getUser();
+  const existing = await getDailyLog(locationId, date, shift);
+  const payload = buildEmptyLogPayload(existing, date, shift);
+  payload.location_id = locationId;
+  payload.notes = value;
+  payload.updated_by = user.id;
+  payload.updated_at = new Date().toISOString();
+  await supabaseClient.from('daily_logs').upsert(payload, { onConflict: 'location_id,log_date,shift' });
+}
+
+// ---------- واجهة مسؤول الصالة ----------
+async function renderHallView(profile){
+  const el = document.getElementById('hallView');
+  const date = todayStr();
+  const shift = profile.shift === 'both' ? 'morning' : profile.shift;
+  const { data: depts } = await supabaseClient.from('departments').select('*').order('id');
+
+  let cardsHtml = "";
+  for (const dept of (depts || [])){
+    const locations = await getLocations(dept.id);
+    const locationIds = locations.map(l => l.id);
+    const logsMap = await getDailyLogsMap(locationIds, date, shift);
+    let totalFields = 0, checkedFields = 0;
+    for (const loc of locations){
+      const log = logsMap[loc.id];
+      for (const f of FIELD_DEFS){
+        totalFields++;
+        if (log && log[f.key]) checkedFields++;
+      }
+    }
+    const pct = totalFields ? Math.round((checkedFields/totalFields)*100) : 0;
+    const badgeClass = pct>=80?'good':pct>=50?'mid':'bad';
+
+    const staffList = await getStaffList(dept.id);
+    const staffIds = staffList.map(s => s.id);
+    const evalMap = await getStaffEvaluationsMap(staffIds, date, shift);
+    let staffTotal = 0, staffChecked = 0;
+    for (const s of staffList){
+      const ev = evalMap[s.id];
+      for (const f of STAFF_FIELD_DEFS){
+        staffTotal++;
+        if (ev && ev[f.key]) staffChecked++;
+      }
+    }
+    const staffPct = staffTotal ? Math.round((staffChecked/staffTotal)*100) : 0;
+    const staffBadge = staffPct>=80?'good':staffPct>=50?'mid':'bad';
+
+    const tasks = await getDailyTasks(dept.id);
+    const taskIds = tasks.map(t => t.id);
+    const taskLogsMap = await getTaskLogsMap(taskIds, date, shift);
+    let taskChecked = 0;
+    tasks.forEach(t => { if (taskLogsMap[t.id]?.checked) taskChecked++; });
+    const taskPct = tasks.length ? Math.round((taskChecked/tasks.length)*100) : 0;
+    const taskBadge = taskPct>=80?'good':taskPct>=50?'mid':'bad';
+
+    const ipads = await getIpads(dept.id);
+    const ipadIds = ipads.map(i => i.id);
+    const ipadLogsMap = await getIpadLogsMap(ipadIds, date, shift);
+    let ipadTotal = 0, ipadChecked = 0;
+    ipads.forEach(ip => { const l = ipadLogsMap[ip.id]; IPAD_FIELD_DEFS.forEach(f => { ipadTotal++; if (l && l[f.key]) ipadChecked++; }); });
+    const ipadPct = ipadTotal ? Math.round((ipadChecked/ipadTotal)*100) : 0;
+    const ipadBadge = ipadPct>=80?'good':ipadPct>=50?'mid':'bad';
+
+    const readers = await getReaders(dept.id);
+    const readerIds = readers.map(r => r.id);
+    const readerLogsMap = await getReaderLogsMap(readerIds, date, shift);
+    let readerTotal = 0, readerChecked = 0;
+    readers.forEach(r => { const l = readerLogsMap[r.id]; READER_FIELD_DEFS.forEach(f => { readerTotal++; if (l && l[f.key]) readerChecked++; }); });
+    const readerPct = readerTotal ? Math.round((readerChecked/readerTotal)*100) : 0;
+    const readerBadge = readerPct>=80?'good':readerPct>=50?'mid':'bad';
+
+    const cleanLog = await getCleanlinessLog(dept.id, date, shift);
+    let cleanChecked = 0;
+    CLEAN_FIELD_DEFS.forEach(f => { if (cleanLog && cleanLog[f.key]) cleanChecked++; });
+    const cleanPct = Math.round((cleanChecked/CLEAN_FIELD_DEFS.length)*100);
+    const cleanBadge = cleanPct>=80?'good':cleanPct>=50?'mid':'bad';
+
+    cardsHtml += `
+      <div class="card dept-card">
+        <h3>${dept.name}</h3>
+        <div>الشفت: ${shift==='morning'?'☀️ صباحي':'🌙 مسائي'} — إنجاز المواقع: <span class="badge ${badgeClass}">${pct}%</span> (${checkedFields}/${totalFields})</div>
+        <div style="margin-top:6px;">تقييم الموظفين (${staffList.length} موظف): <span class="badge ${staffBadge}">${staffPct}%</span> (${staffChecked}/${staffTotal})</div>
+        <div style="margin-top:6px;">المهام اليومية: <span class="badge ${taskBadge}">${taskPct}%</span> (${taskChecked}/${tasks.length})</div>
+        <div style="margin-top:6px;">جرد الآيباد (${ipads.length} جهاز): <span class="badge ${ipadBadge}">${ipadPct}%</span></div>
+        <div style="margin-top:6px;">جرد قارئ السيريال (${readers.length} جهاز): <span class="badge ${readerBadge}">${readerPct}%</span></div>
+        <div style="margin-top:6px;">نظافة القسم: <span class="badge ${cleanBadge}">${cleanPct}%</span></div>
+      </div>`;
+  }
+
+  el.innerHTML = `<h2 style="margin:8px 0;">🏬 نظرة عامة — ${date}</h2>${cardsHtml}`;
+}
+
+// ---------- واجهة مسؤول المبيعات ----------
+let currentSalesDeptId = null;
+
+async function renderSalesView(){
+  currentSalesDeptId = null;
+  const el = document.getElementById('salesView');
+  el.innerHTML = '<div class="status">جاري التحميل...</div>';
+  try {
+    salesSelectedDate = salesSelectedDate || todayStr();
+    const date = salesSelectedDate;
+    const { data: depts, error: deptsErr } = await supabaseClient.from('departments').select('*').order('id');
+    if (deptsErr) throw deptsErr;
+
+    const pctByDept = await computeAllDeptsOverallPct(date);
+
+    let cardsHtml = "";
+    for (const dept of (depts || [])){
+      const pct = pctByDept[dept.id] ?? 0;
+      const badgeClass = pct>=80?'good':pct>=50?'mid':'bad';
+      cardsHtml += `
+        <div class="card dept-card" onclick="openSalesDept('${dept.id}')">
+          <h3>${dept.name}</h3>
+          <div>نسبة الإنجاز العامة: <span class="badge ${badgeClass}">${pct}%</span></div>
+        </div>`;
+    }
+
+    el.innerHTML = `
+      <div class="card">
+        <h2>📈 نظرة عامة على الأقسام</h2>
+        <div style="display:flex; align-items:center; gap:8px; margin:10px 0; flex-wrap:wrap;">
+          <button class="secondary" onclick="changeOverviewDate(-1)">◀ يوم سابق</button>
+          <input type="date" value="${date}" onchange="setOverviewDate(this.value)">
+          <button class="secondary" onclick="changeOverviewDate(1)">يوم تالي ▶</button>
+          <button class="secondary" onclick="setOverviewDate('${todayStr()}')">اليوم الحالي</button>
+        </div>
+        <div style="color:#999; font-size:12px;">اضغط على أي قسم لعرض التحليل التفصيلي الكامل — التاريخ: ${date}</div>
+      </div>
+      ${cardsHtml || '<div class="card">لا توجد أقسام مسجلة</div>'}`;
+  } catch (err) {
+    el.innerHTML = `<div class="card" style="color:#ff7b7b;">❌ خطأ: ${err.message || JSON.stringify(err)}</div>`;
+  }
+}
+
+function changeOverviewDate(deltaDays){
+  salesSelectedDate = addDaysStr(salesSelectedDate || todayStr(), deltaDays);
+  renderSalesView();
+}
+
+function setOverviewDate(dateStr){
+  salesSelectedDate = dateStr;
+  renderSalesView();
+}
+
+// يحسب نسبة الإنجاز العامة لكل الأقسام دفعة وحدة باستعلامات مجمّعة (سريع)
+async function computeAllDeptsOverallPct(date){
+  const totals = {}; // deptId -> { total, done }
+  const bump = (deptId, total, done) => {
+    if (!totals[deptId]) totals[deptId] = { total: 0, done: 0 };
+    totals[deptId].total += total;
+    totals[deptId].done += done;
+  };
+
+  // المواقع
+  const { data: allLocations } = await supabaseClient.from('locations').select('id, department_id');
+  const locToDept = {}; (allLocations||[]).forEach(l => locToDept[l.id]=l.department_id);
+  const { data: locLogs } = await supabaseClient.from('daily_logs').select('*').eq('log_date', date);
+  (allLocations||[]).forEach(loc => bump(loc.department_id, FIELD_DEFS.length * 2, 0)); // 2 = شفتين، القيمة الافتراضية صفر منجز
+  (locLogs||[]).forEach(l => {
+    const deptId = locToDept[l.location_id];
+    if (!deptId) return;
+    FIELD_DEFS.forEach(f => { if (l[f.key]) bump(deptId, 0, 1); });
+  });
+
+  // الموظفين
+  const { data: allStaff } = await supabaseClient.from('staff').select('id, department_id');
+  const staffToDept = {}; (allStaff||[]).forEach(s => staffToDept[s.id]=s.department_id);
+  const { data: staffLogs } = await supabaseClient.from('staff_evaluations').select('*').eq('log_date', date);
+  (allStaff||[]).forEach(s => bump(s.department_id, STAFF_FIELD_DEFS.length * 2, 0));
+  (staffLogs||[]).forEach(e => {
+    const deptId = staffToDept[e.staff_id];
+    if (!deptId) return;
+    STAFF_FIELD_DEFS.forEach(f => { if (e[f.key]) bump(deptId, 0, 1); });
+  });
+
+  // المهام اليومية
+  const { data: allTasks } = await supabaseClient.from('daily_tasks').select('id, department_id');
+  const taskToDept = {}; (allTasks||[]).forEach(t => taskToDept[t.id]=t.department_id);
+  const { data: taskLogs } = await supabaseClient.from('daily_task_logs').select('*').eq('log_date', date);
+  (allTasks||[]).forEach(t => bump(t.department_id, 1 * 2, 0));
+  (taskLogs||[]).forEach(l => {
+    const deptId = taskToDept[l.task_id];
+    if (!deptId) return;
+    if (l.checked) bump(deptId, 0, 1);
+  });
+
+  // الآيباد
+  const { data: allIpads } = await supabaseClient.from('ipads').select('id, department_id');
+  const ipadToDept = {}; (allIpads||[]).forEach(i => ipadToDept[i.id]=i.department_id);
+  const { data: ipadLogs } = await supabaseClient.from('ipad_logs').select('*').eq('log_date', date);
+  (allIpads||[]).forEach(i => bump(i.department_id, IPAD_FIELD_DEFS.length * 2, 0));
+  (ipadLogs||[]).forEach(l => {
+    const deptId = ipadToDept[l.ipad_id];
+    if (!deptId) return;
+    IPAD_FIELD_DEFS.forEach(f => { if (l[f.key]) bump(deptId, 0, 1); });
+  });
+
+  // قارئ السيريال
+  const { data: allReaders } = await supabaseClient.from('serial_readers').select('id, department_id');
+  const readerToDept = {}; (allReaders||[]).forEach(r => readerToDept[r.id]=r.department_id);
+  const { data: readerLogs } = await supabaseClient.from('serial_reader_logs').select('*').eq('log_date', date);
+  (allReaders||[]).forEach(r => bump(r.department_id, READER_FIELD_DEFS.length * 2, 0));
+  (readerLogs||[]).forEach(l => {
+    const deptId = readerToDept[l.reader_id];
+    if (!deptId) return;
+    READER_FIELD_DEFS.forEach(f => { if (l[f.key]) bump(deptId, 0, 1); });
+  });
+
+  // نظافة القسم
+  const { data: depts2 } = await supabaseClient.from('departments').select('id');
+  const { data: cleanLogs } = await supabaseClient.from('department_cleanliness_logs').select('*').eq('log_date', date);
+  (depts2||[]).forEach(d => bump(d.id, CLEAN_FIELD_DEFS.length * 2, 0));
+  (cleanLogs||[]).forEach(l => {
+    CLEAN_FIELD_DEFS.forEach(f => { if (l[f.key]) bump(l.department_id, 0, 1); });
+  });
+
+  const pctByDept = {};
+  Object.entries(totals).forEach(([deptId, t]) => {
+    pctByDept[deptId] = t.total ? Math.round((t.done / t.total) * 100) : 0;
+  });
+  return pctByDept;
+}
+
+async function openSalesDept(deptId){
+  currentSalesDeptId = deptId;
+  await renderSalesDeptDetail(deptId);
+}
+
+async function renderSalesDeptDetail(deptId){
+  const el = document.getElementById('salesView');
+  salesSelectedDate = salesSelectedDate || todayStr();
+  const { data: dept } = await supabaseClient.from('departments').select('*').eq('id', deptId).single();
+  el.innerHTML = `
+    <div class="card">
+      <button class="secondary" onclick="renderSalesView()">◀ رجوع لكل الأقسام</button>
+      <h2 style="margin-top:10px;">📈 ${dept?.name || ''} — تحليل سلبيات المواقع</h2>
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px; flex-wrap:wrap;">
+        <button class="secondary" onclick="changeSalesDate(-1)">◀ يوم سابق</button>
+        <input type="date" value="${salesSelectedDate}" onchange="setSalesDate(this.value)">
+        <button class="secondary" onclick="changeSalesDate(1)">يوم تالي ▶</button>
+        <button class="secondary" onclick="setSalesDate('${todayStr()}')">اليوم الحالي</button>
+      </div>
+      <div class="tabs">
+        <div class="tab active" id="tabDay" onclick="loadSalesRange('day')">يومي</div>
+        <div class="tab" id="tabWeek" onclick="loadSalesRange('week')">أسبوعي</div>
+        <div class="tab" id="tabMonth" onclick="loadSalesRange('month')">شهري</div>
+      </div>
+      <div id="insightsWrap"></div>
+      <div id="salesTableWrap" class="status">جاري التحميل...</div>
+    </div>
+    <div class="card">
+      <h2>👤 تحليل تقييم الموظفين</h2>
+      <div class="tabs">
+        <div class="tab active" id="staffTabDay" onclick="loadStaffRange('day')">يومي</div>
+        <div class="tab" id="staffTabWeek" onclick="loadStaffRange('week')">أسبوعي</div>
+        <div class="tab" id="staffTabMonth" onclick="loadStaffRange('month')">شهري</div>
+      </div>
+      <div id="staffInsightsWrap"></div>
+      <div id="staffTableWrap" class="status">جاري التحميل...</div>
+    </div>
+    <div class="card">
+      <h2>📝 تحليل المهام اليومية</h2>
+      <div class="tabs">
+        <div class="tab active" id="taskTabDay" onclick="loadTaskRange('day')">يومي</div>
+        <div class="tab" id="taskTabWeek" onclick="loadTaskRange('week')">أسبوعي</div>
+        <div class="tab" id="taskTabMonth" onclick="loadTaskRange('month')">شهري</div>
+      </div>
+      <div id="taskInsightsWrap"></div>
+      <div id="taskTableWrap" class="status">جاري التحميل...</div>
+    </div>
+    <div class="card">
+      <h2>📱 تحليل جرد الآيباد</h2>
+      <div class="tabs">
+        <div class="tab active" id="ipadTabDay" onclick="loadIpadRange('day')">يومي</div>
+        <div class="tab" id="ipadTabWeek" onclick="loadIpadRange('week')">أسبوعي</div>
+        <div class="tab" id="ipadTabMonth" onclick="loadIpadRange('month')">شهري</div>
+      </div>
+      <div id="ipadTableWrap" class="status">جاري التحميل...</div>
+    </div>
+    <div class="card">
+      <h2>🔍 تحليل جرد قارئ السيريال</h2>
+      <div class="tabs">
+        <div class="tab active" id="readerTabDay" onclick="loadReaderRange('day')">يومي</div>
+        <div class="tab" id="readerTabWeek" onclick="loadReaderRange('week')">أسبوعي</div>
+        <div class="tab" id="readerTabMonth" onclick="loadReaderRange('month')">شهري</div>
+      </div>
+      <div id="readerTableWrap" class="status">جاري التحميل...</div>
+    </div>
+    <div class="card">
+      <h2>🧹 تحليل نظافة القسم</h2>
+      <div class="tabs">
+        <div class="tab active" id="cleanTabDay" onclick="loadCleanRange('day')">يومي</div>
+        <div class="tab" id="cleanTabWeek" onclick="loadCleanRange('week')">أسبوعي</div>
+        <div class="tab" id="cleanTabMonth" onclick="loadCleanRange('month')">شهري</div>
+      </div>
+      <div id="cleanTableWrap" class="status">جاري التحميل...</div>
+    </div>
+    <div class="card">
+      <h2>⚙️ إدارة القسم</h2>
+      <div style="color:#999; font-size:12px; margin-bottom:10px;">إضافة وحذف الموظفين، المهام، الأجهزة، وخانات العمل — متاح لك فقط كمدير مبيعات</div>
+    </div>
+    <div class="card" id="customFieldsSection"></div>
+    <div class="card" id="staffSection"></div>
+    <div class="card" id="tasksSection"></div>
+    <div class="card" id="ipadSection"></div>
+    <div class="card" id="readerSection"></div>`;
+  currentManageMode = true;
+  currentShiftChoice = 'morning';
+  currentDate = todayStr();
+  await loadSalesRange('day');
+  await loadStaffRange('day');
+  await loadTaskRange('day');
+  await loadIpadRange('day');
+  await loadReaderRange('day');
+  await loadCleanRange('day');
+  await renderCustomFieldsSection(deptId);
+  await renderStaffSection(deptId);
+  await renderTasksSection(deptId);
+  await renderIpadSection(deptId);
+  await renderReaderSection(deptId);
+}
+
+function changeSalesDate(deltaDays){
+  salesSelectedDate = addDaysStr(salesSelectedDate || todayStr(), deltaDays);
+  refreshSalesDateUI();
+}
+
+function setSalesDate(dateStr){
+  salesSelectedDate = dateStr;
+  refreshSalesDateUI();
+}
+
+function refreshSalesDateUI(){
+  const dateInput = document.querySelector('#salesView input[type=date]');
+  if (dateInput) dateInput.value = salesSelectedDate;
+  loadSalesRange(currentSalesRange);
+  loadStaffRange(currentStaffRange);
+  loadTaskRange(currentTaskRange);
+  loadIpadRange('day');
+  loadReaderRange('day');
+  loadCleanRange('day');
+}
+
+async function loadStaffRange(range){
+  currentStaffRange = range;
+  ['staffTabDay','staffTabWeek','staffTabMonth'].forEach(id => document.getElementById(id).classList.remove('active'));
+  const tabId = range === 'day' ? 'staffTabDay' : range === 'week' ? 'staffTabWeek' : 'staffTabMonth';
+  document.getElementById(tabId).classList.add('active');
+
+  const wrap = document.getElementById('staffTableWrap');
+  const insightsWrap = document.getElementById('staffInsightsWrap');
+  wrap.innerHTML = "جاري التحميل...";
+
+  const daysBack = range === 'day' ? 0 : range === 'week' ? 6 : 29;
+  const endDate = salesSelectedDate || todayStr();
+  const startDate = addDaysStr(endDate, -daysBack);
+  const numDays = daysBack + 1;
+
+  const { data: allStaffRaw, error: staffError } = await supabaseClient.from('staff').select('*, departments(name)');
+  if (staffError){
+    wrap.innerHTML = `<div style="color:#ff7b7b;">خطأ بجلب الموظفين: ${staffError.message}</div>`;
+    return;
+  }
+  const allStaff = currentSalesDeptId ? (allStaffRaw||[]).filter(s => s.department_id === currentSalesDeptId) : allStaffRaw;
+  if (!allStaff || allStaff.length === 0){
+    wrap.innerHTML = `<div style="color:#ffcf5c;">لا يوجد موظفون مسجلون بعد.</div>`;
+    insightsWrap.innerHTML = '';
+    return;
+  }
+
+  const { data: evals, error: evalError } = await supabaseClient.from('staff_evaluations').select('*')
+    .gte('log_date', startDate).lte('log_date', endDate);
+  if (evalError){
+    wrap.innerHTML = `<div style="color:#ff7b7b;">خطأ بجلب التقييمات: ${evalError.message}</div>`;
+    return;
+  }
+
+  const evalsByStaff = {};
+  (evals || []).forEach(e => {
+    if (!evalsByStaff[e.staff_id]) evalsByStaff[e.staff_id] = [];
+    evalsByStaff[e.staff_id].push(e);
+  });
+
+  const criterionNeglect = {}; STAFF_FIELD_DEFS.forEach(f => criterionNeglect[f.key] = 0);
+  let worstStaffName = null, worstStaffPct = 101, worstStaffDept = '';
+
+  let rowsHtml = "";
+  for (const s of allStaff){
+    const staffEvals = evalsByStaff[s.id] || [];
+    const totalPossible = numDays * 2 * STAFF_FIELD_DEFS.length; // شفتين باليوم
+    let checked = 0;
+    staffEvals.forEach(e => {
+      STAFF_FIELD_DEFS.forEach(f => {
+        if (e[f.key]) checked++;
+        else criterionNeglect[f.key]++;
+      });
+    });
+    const pct = totalPossible ? Math.round((checked/totalPossible)*100) : 0;
+    const negatives = totalPossible - checked;
+    if (pct < worstStaffPct){ worstStaffPct = pct; worstStaffName = s.name; worstStaffDept = s.departments?.name || ''; }
+    const badgeClass = pct>=80?'good':pct>=50?'mid':'bad';
+    rowsHtml += `<tr>
+      <td>${s.name}</td>
+      <td>${s.departments?.name || ''}</td>
+      <td>${checked}/${totalPossible}</td>
+      <td><span class="badge ${badgeClass}">${pct}%</span></td>
+      <td style="color:${negatives>0?'#ff7b7b':'#3ecf6b'}">${negatives}</td>
+    </tr>`;
+  }
+
+  let worstCriterion = null, worstCriterionCount = -1;
+  Object.entries(criterionNeglect).forEach(([k,v]) => { if (v > worstCriterionCount){ worstCriterionCount = v; worstCriterion = k; } });
+  const worstCriterionLabel = STAFF_FIELD_DEFS.find(f=>f.key===worstCriterion)?.label || worstCriterion;
+
+  insightsWrap.innerHTML = worstStaffName ? `
+    <div class="insight">📌 أضعف موظف بالفترة: <b>${worstStaffName}</b> (${worstStaffDept}) — ${worstStaffPct}% إنجاز</div>
+    <div class="insight">📌 أكثر معيار مهمل: <b>${worstCriterionLabel}</b> (${worstCriterionCount} مرة غير منجز)</div>
+  ` : '';
+
+  wrap.innerHTML = `
+    <div class="table-wrap">
+    <table>
+      <tr><th>الموظف</th><th>القسم</th><th>منجز/المتوقع</th><th>نسبة الإنجاز</th><th>سلبيات</th></tr>
+      ${rowsHtml}
+    </table>
+    </div>`;
+}
+
+async function loadSalesRange(range){
+  currentSalesRange = range;
+  ['tabDay','tabWeek','tabMonth'].forEach(id => document.getElementById(id).classList.remove('active'));
+  const tabId = range === 'day' ? 'tabDay' : range === 'week' ? 'tabWeek' : 'tabMonth';
+  document.getElementById(tabId).classList.add('active');
+
+  const wrap = document.getElementById('salesTableWrap');
+  const insightsWrap = document.getElementById('insightsWrap');
+  wrap.innerHTML = "جاري التحميل...";
+
+  const daysBack = range === 'day' ? 0 : range === 'week' ? 6 : 29;
+  const endDate = salesSelectedDate || todayStr();
+  const startDate = addDaysStr(endDate, -daysBack);
+
+  let { data: depts, error: deptsError } = await supabaseClient.from('departments').select('*').order('id');
+  if (deptsError){
+    wrap.innerHTML = `<div style="color:#ff7b7b;">خطأ بجلب الأقسام: ${deptsError.message}</div>`;
+    return;
+  }
+  if (currentSalesDeptId) depts = (depts||[]).filter(d => d.id === currentSalesDeptId);
+  const { data: allLocations, error: locsError } = await supabaseClient.from('locations').select('id, department_id');
+  if (locsError){
+    wrap.innerHTML = `<div style="color:#ff7b7b;">خطأ بجلب المواقع: ${locsError.message}</div>`;
+    return;
+  }
+  const locToDept = {};
+  (allLocations || []).forEach(l => { locToDept[l.id] = l.department_id; });
+
+  const { data: logs, error: logsError } = await supabaseClient.from('daily_logs').select('*')
+    .gte('log_date', startDate).lte('log_date', endDate);
+
+  if (logsError){
+    wrap.innerHTML = `<div style="color:#ff7b7b;">خطأ بجلب البيانات: ${logsError.message}</div>`;
+    return;
+  }
+
+  const logsByDept = {};
+  (logs || []).forEach(l => {
+    const dId = locToDept[l.location_id];
+    if (!dId) return;
+    if (!logsByDept[dId]) logsByDept[dId] = [];
+    logsByDept[dId].push(l);
+  });
+
+  if (!depts || depts.length === 0){
+    wrap.innerHTML = `<div style="color:#ffcf5c;">لا توجد أقسام مسجلة بقاعدة البيانات (departments فاضية).</div>`;
+    return;
+  }
+
+  let worstDept = null, worstPct = 101;
+  const fieldNeglect = {}; FIELD_DEFS.forEach(f => fieldNeglect[f.key] = 0);
+
+  let rowsHtml = "";
+  for (const dept of (depts || [])){
+    const locations = await getLocations(dept.id);
+    const numDays = daysBack + 1;
+    const deptLogs = logsByDept[dept.id] || [];
+    let checkedFields = 0;
+    let totalFieldsPossible = locations.length * numDays * 2 * FIELD_DEFS.length;
+    const deptFieldNeglect = {}; FIELD_DEFS.forEach(f => deptFieldNeglect[f.key] = 0);
+    deptLogs.forEach(l => {
+      FIELD_DEFS.forEach(f => {
+        if (l[f.key]) checkedFields++;
+        else { fieldNeglect[f.key]++; deptFieldNeglect[f.key]++; }
+      });
+    });
+    const pct = totalFieldsPossible ? Math.round((checkedFields/totalFieldsPossible)*100) : 0;
+    const negatives = totalFieldsPossible - checkedFields;
+    if (pct < worstPct){ worstPct = pct; worstDept = dept.name; }
+    const badgeClass = pct>=80?'good':pct>=50?'mid':'bad';
+
+    let deptWorstField = null, deptWorstCount = -1;
+    Object.entries(deptFieldNeglect).forEach(([k,v]) => { if (v > deptWorstCount){ deptWorstCount = v; deptWorstField = k; } });
+    const deptWorstLabel = deptWorstCount > 0 ? (FIELD_DEFS.find(f=>f.key===deptWorstField)?.label || deptWorstField) : '—';
+
+    rowsHtml += `<tr>
+      <td>${dept.name}</td>
+      <td>${locations.length}</td>
+      <td>${checkedFields}/${totalFieldsPossible}</td>
+      <td><span class="badge ${badgeClass}">${pct}%</span></td>
+      <td style="color:${negatives>0?'#ff7b7b':'#3ecf6b'}">${negatives}</td>
+      <td>${deptWorstLabel}${deptWorstCount>0?' ('+deptWorstCount+')':''}</td>
+    </tr>`;
+  }
+
+  let worstField = null, worstFieldCount = -1;
+  Object.entries(fieldNeglect).forEach(([k,v]) => { if (v > worstFieldCount){ worstFieldCount = v; worstField = k; } });
+  const fieldLabel = FIELD_DEFS.find(f=>f.key===worstField)?.label || worstField;
+
+  insightsWrap.innerHTML = worstDept ? `
+    ${currentSalesDeptId ? '' : `<div class="insight">📌 أضعف قسم بالفترة: <b>${worstDept}</b> (${worstPct}% إنجاز)</div>`}
+    <div class="insight">📌 أكثر خانة مهملة: <b>${fieldLabel}</b> (${worstFieldCount} مرة غير منجزة)</div>
+  ` : '';
+
+  wrap.innerHTML = `
+    <div class="table-wrap">
+    <table>
+      <tr><th>القسم</th><th>عدد المواقع</th><th>منجز/المتوقع</th><th>نسبة الإنجاز</th><th>سلبيات</th><th>أضعف خانة</th></tr>
+      ${rowsHtml}
+    </table>
+    </div>`;
+}
+
+async function loadTaskRange(range){
+  currentTaskRange = range;
+  ['taskTabDay','taskTabWeek','taskTabMonth'].forEach(id => document.getElementById(id).classList.remove('active'));
+  const tabId = range === 'day' ? 'taskTabDay' : range === 'week' ? 'taskTabWeek' : 'taskTabMonth';
+  document.getElementById(tabId).classList.add('active');
+
+  const wrap = document.getElementById('taskTableWrap');
+  const insightsWrap = document.getElementById('taskInsightsWrap');
+  wrap.innerHTML = "جاري التحميل...";
+
+  const daysBack = range === 'day' ? 0 : range === 'week' ? 6 : 29;
+  const endDate = salesSelectedDate || todayStr();
+  const startDate = addDaysStr(endDate, -daysBack);
+  const numDays = daysBack + 1;
+
+  let { data: depts, error: deptsError } = await supabaseClient.from('departments').select('*').order('id');
+  if (deptsError){
+    wrap.innerHTML = `<div style="color:#ff7b7b;">خطأ: ${deptsError.message}</div>`;
+    return;
+  }
+  if (currentSalesDeptId) depts = (depts||[]).filter(d => d.id === currentSalesDeptId);
+  const { data: allTasks, error: tasksError } = await supabaseClient.from('daily_tasks').select('id, department_id, name');
+  if (tasksError){
+    wrap.innerHTML = `<div style="color:#ff7b7b;">خطأ: ${tasksError.message}</div>`;
+    return;
+  }
+  const { data: logs, error: logsError } = await supabaseClient.from('daily_task_logs').select('*')
+    .gte('log_date', startDate).lte('log_date', endDate);
+  if (logsError){
+    wrap.innerHTML = `<div style="color:#ff7b7b;">خطأ: ${logsError.message}</div>`;
+    return;
+  }
+
+  const taskToDept = {};
+  const tasksByDept = {};
+  (allTasks || []).forEach(t => {
+    taskToDept[t.id] = t.department_id;
+    if (!tasksByDept[t.department_id]) tasksByDept[t.department_id] = [];
+    tasksByDept[t.department_id].push(t);
+  });
+
+  const logsByTask = {};
+  (logs || []).forEach(l => {
+    if (!logsByTask[l.task_id]) logsByTask[l.task_id] = [];
+    logsByTask[l.task_id].push(l);
+  });
+
+  let worstDept = null, worstPct = 101;
+  let worstTaskName = null, worstTaskCount = -1, worstTaskDept = '';
+
+  let rowsHtml = "";
+  for (const dept of (depts || [])){
+    const tasks = tasksByDept[dept.id] || [];
+    const totalPossible = tasks.length * numDays * 2; // شفتين باليوم
+    let checked = 0;
+    tasks.forEach(t => {
+      const tLogs = logsByTask[t.id] || [];
+      const tChecked = tLogs.filter(l => l.checked).length;
+      checked += tChecked;
+      const tNeglect = (numDays * 2) - tChecked;
+      if (tNeglect > worstTaskCount){ worstTaskCount = tNeglect; worstTaskName = t.name; worstTaskDept = dept.name; }
+    });
+    const pct = totalPossible ? Math.round((checked/totalPossible)*100) : 0;
+    const negatives = totalPossible - checked;
+    if (pct < worstPct){ worstPct = pct; worstDept = dept.name; }
+    const badgeClass = pct>=80?'good':pct>=50?'mid':'bad';
+    rowsHtml += `<tr>
+      <td>${dept.name}</td>
+      <td>${tasks.length}</td>
+      <td>${checked}/${totalPossible}</td>
+      <td><span class="badge ${badgeClass}">${pct}%</span></td>
+      <td style="color:${negatives>0?'#ff7b7b':'#3ecf6b'}">${negatives}</td>
+    </tr>`;
+  }
+
+  insightsWrap.innerHTML = worstDept ? `
+    ${currentSalesDeptId ? '' : `<div class="insight">📌 أضعف قسم بالمهام اليومية: <b>${worstDept}</b> (${worstPct}% إنجاز)</div>`}
+    <div class="insight">📌 أكثر مهمة مهملة: <b>${worstTaskName}</b> بقسم ${worstTaskDept} (${worstTaskCount} مرة غير منجزة)</div>
+  ` : '';
+
+  wrap.innerHTML = `
+    <div class="table-wrap">
+    <table>
+      <tr><th>القسم</th><th>عدد المهام</th><th>منجز/المتوقع</th><th>نسبة الإنجاز</th><th>سلبيات</th></tr>
+      ${rowsHtml}
+    </table>
+    </div>`;
+}
+
+async function loadIpadRange(range){
+  ['ipadTabDay','ipadTabWeek','ipadTabMonth'].forEach(id => document.getElementById(id).classList.remove('active'));
+  const tabId = range === 'day' ? 'ipadTabDay' : range === 'week' ? 'ipadTabWeek' : 'ipadTabMonth';
+  document.getElementById(tabId).classList.add('active');
+  const wrap = document.getElementById('ipadTableWrap');
+  wrap.innerHTML = "جاري التحميل...";
+  const daysBack = range === 'day' ? 0 : range === 'week' ? 6 : 29;
+  const endDate = salesSelectedDate || todayStr();
+  const startDate = addDaysStr(endDate, -daysBack);
+  const numDays = daysBack + 1;
+
+  let { data: depts } = await supabaseClient.from('departments').select('*').order('id');
+  if (currentSalesDeptId) depts = (depts||[]).filter(d => d.id === currentSalesDeptId);
+  const { data: allIpads } = await supabaseClient.from('ipads').select('id, department_id');
+  const { data: logs } = await supabaseClient.from('ipad_logs').select('*').gte('log_date', startDate).lte('log_date', endDate);
+
+  const ipadsByDept = {};
+  (allIpads || []).forEach(i => { if (!ipadsByDept[i.department_id]) ipadsByDept[i.department_id]=[]; ipadsByDept[i.department_id].push(i.id); });
+  const logsByIpad = {};
+  (logs || []).forEach(l => { if (!logsByIpad[l.ipad_id]) logsByIpad[l.ipad_id]=[]; logsByIpad[l.ipad_id].push(l); });
+
+  let rowsHtml = "";
+  for (const dept of (depts || [])){
+    const ipadIds = ipadsByDept[dept.id] || [];
+    const totalPossible = ipadIds.length * numDays * 2 * IPAD_FIELD_DEFS.length;
+    let checked = 0;
+    ipadIds.forEach(id => { (logsByIpad[id]||[]).forEach(l => IPAD_FIELD_DEFS.forEach(f => { if (l[f.key]) checked++; })); });
+    const pct = totalPossible ? Math.round((checked/totalPossible)*100) : 0;
+    const negatives = totalPossible - checked;
+    const badgeClass = pct>=80?'good':pct>=50?'mid':'bad';
+    rowsHtml += `<tr><td>${dept.name}</td><td>${ipadIds.length}</td><td>${checked}/${totalPossible}</td><td><span class="badge ${badgeClass}">${pct}%</span></td><td style="color:${negatives>0?'#ff7b7b':'#3ecf6b'}">${negatives}</td></tr>`;
+  }
+  wrap.innerHTML = `<div class="table-wrap"><table><tr><th>القسم</th><th>عدد الأجهزة</th><th>منجز/المتوقع</th><th>نسبة الإنجاز</th><th>سلبيات</th></tr>${rowsHtml}</table></div>`;
+}
+
+async function loadReaderRange(range){
+  ['readerTabDay','readerTabWeek','readerTabMonth'].forEach(id => document.getElementById(id).classList.remove('active'));
+  const tabId = range === 'day' ? 'readerTabDay' : range === 'week' ? 'readerTabWeek' : 'readerTabMonth';
+  document.getElementById(tabId).classList.add('active');
+  const wrap = document.getElementById('readerTableWrap');
+  wrap.innerHTML = "جاري التحميل...";
+  const daysBack = range === 'day' ? 0 : range === 'week' ? 6 : 29;
+  const endDate = salesSelectedDate || todayStr();
+  const startDate = addDaysStr(endDate, -daysBack);
+  const numDays = daysBack + 1;
+
+  let { data: depts } = await supabaseClient.from('departments').select('*').order('id');
+  if (currentSalesDeptId) depts = (depts||[]).filter(d => d.id === currentSalesDeptId);
+  const { data: allReaders } = await supabaseClient.from('serial_readers').select('id, department_id');
+  const { data: logs } = await supabaseClient.from('serial_reader_logs').select('*').gte('log_date', startDate).lte('log_date', endDate);
+
+  const readersByDept = {};
+  (allReaders || []).forEach(r => { if (!readersByDept[r.department_id]) readersByDept[r.department_id]=[]; readersByDept[r.department_id].push(r.id); });
+  const logsByReader = {};
+  (logs || []).forEach(l => { if (!logsByReader[l.reader_id]) logsByReader[l.reader_id]=[]; logsByReader[l.reader_id].push(l); });
+
+  let rowsHtml = "";
+  for (const dept of (depts || [])){
+    const readerIds = readersByDept[dept.id] || [];
+    const totalPossible = readerIds.length * numDays * 2 * READER_FIELD_DEFS.length;
+    let checked = 0;
+    readerIds.forEach(id => { (logsByReader[id]||[]).forEach(l => READER_FIELD_DEFS.forEach(f => { if (l[f.key]) checked++; })); });
+    const pct = totalPossible ? Math.round((checked/totalPossible)*100) : 0;
+    const negatives = totalPossible - checked;
+    const badgeClass = pct>=80?'good':pct>=50?'mid':'bad';
+    rowsHtml += `<tr><td>${dept.name}</td><td>${readerIds.length}</td><td>${checked}/${totalPossible}</td><td><span class="badge ${badgeClass}">${pct}%</span></td><td style="color:${negatives>0?'#ff7b7b':'#3ecf6b'}">${negatives}</td></tr>`;
+  }
+  wrap.innerHTML = `<div class="table-wrap"><table><tr><th>القسم</th><th>عدد الأجهزة</th><th>منجز/المتوقع</th><th>نسبة الإنجاز</th><th>سلبيات</th></tr>${rowsHtml}</table></div>`;
+}
+
+async function loadCleanRange(range){
+  ['cleanTabDay','cleanTabWeek','cleanTabMonth'].forEach(id => document.getElementById(id).classList.remove('active'));
+  const tabId = range === 'day' ? 'cleanTabDay' : range === 'week' ? 'cleanTabWeek' : 'cleanTabMonth';
+  document.getElementById(tabId).classList.add('active');
+  const wrap = document.getElementById('cleanTableWrap');
+  wrap.innerHTML = "جاري التحميل...";
+  const daysBack = range === 'day' ? 0 : range === 'week' ? 6 : 29;
+  const endDate = salesSelectedDate || todayStr();
+  const startDate = addDaysStr(endDate, -daysBack);
+  const numDays = daysBack + 1;
+
+  let { data: depts } = await supabaseClient.from('departments').select('*').order('id');
+  if (currentSalesDeptId) depts = (depts||[]).filter(d => d.id === currentSalesDeptId);
+  const { data: logs } = await supabaseClient.from('department_cleanliness_logs').select('*').gte('log_date', startDate).lte('log_date', endDate);
+
+  const logsByDept = {};
+  (logs || []).forEach(l => { if (!logsByDept[l.department_id]) logsByDept[l.department_id]=[]; logsByDept[l.department_id].push(l); });
+
+  let rowsHtml = "";
+  for (const dept of (depts || [])){
+    const totalPossible = numDays * 2 * CLEAN_FIELD_DEFS.length;
+    let checked = 0;
+    (logsByDept[dept.id]||[]).forEach(l => CLEAN_FIELD_DEFS.forEach(f => { if (l[f.key]) checked++; }));
+    const pct = totalPossible ? Math.round((checked/totalPossible)*100) : 0;
+    const negatives = totalPossible - checked;
+    const badgeClass = pct>=80?'good':pct>=50?'mid':'bad';
+    rowsHtml += `<tr><td>${dept.name}</td><td>${checked}/${totalPossible}</td><td><span class="badge ${badgeClass}">${pct}%</span></td><td style="color:${negatives>0?'#ff7b7b':'#3ecf6b'}">${negatives}</td></tr>`;
+  }
+  wrap.innerHTML = `<div class="table-wrap"><table><tr><th>القسم</th><th>منجز/المتوقع</th><th>نسبة الإنجاز</th><th>سلبيات</th></tr>${rowsHtml}</table></div>`;
+}
+
+window.doLogin = doLogin;
+window.doLogout = doLogout;
+window.switchShift = switchShift;
+window.toggleField = toggleField;
+window.toggleExtraField = toggleExtraField;
+window.updateNotes = updateNotes;
+window.loadSalesRange = loadSalesRange;
+window.loadStaffRange = loadStaffRange;
+window.changeDate = changeDate;
+window.goToDate = goToDate;
+window.goToToday = goToToday;
+window.toggleHistoryPanel = toggleHistoryPanel;
+window.addCustomField = addCustomField;
+window.deleteCustomField = deleteCustomField;
+window.addStaffMember = addStaffMember;
+window.deleteStaffMember = deleteStaffMember;
+window.toggleStaffField = toggleStaffField;
+window.updateStaffNotes = updateStaffNotes;
+window.openSalesDept = openSalesDept;
+window.renderSalesView = renderSalesView;
+window.changeOverviewDate = changeOverviewDate;
+window.setOverviewDate = setOverviewDate;
+window.changeSalesDate = changeSalesDate;
+window.setSalesDate = setSalesDate;
+window.addDailyTask = addDailyTask;
+window.deleteDailyTask = deleteDailyTask;
+window.toggleTaskLog = toggleTaskLog;
+window.loadTaskRange = loadTaskRange;
+window.addIpad = addIpad;
+window.deleteIpad = deleteIpad;
+window.toggleIpadField = toggleIpadField;
+window.loadIpadRange = loadIpadRange;
+window.addReader = addReader;
+window.deleteReader = deleteReader;
+window.toggleReaderField = toggleReaderField;
+window.loadReaderRange = loadReaderRange;
+window.toggleCleanField = toggleCleanField;
+window.loadCleanRange = loadCleanRange;
+</script>
+</body>
+</html>
